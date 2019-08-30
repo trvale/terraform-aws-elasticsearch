@@ -68,37 +68,6 @@ resource "aws_iam_service_linked_role" "default" {
   description      = "AWSServiceRoleForAmazonElasticsearchService Service-Linked Role"
 }
 
-# Role that pods can assume for access to elasticsearch and kibana
-resource "aws_iam_role" "elasticsearch_user" {
-  count              = var.enabled && (length(var.iam_authorizing_role_arns) > 0 || length(var.iam_role_arns) > 0) ? 1 : 0
-  name               = module.user_label.id
-  assume_role_policy = join("", data.aws_iam_policy_document.assume_role.*.json)
-  description        = "IAM Role to assume to access the Elasticsearch ${module.label.id} cluster"
-  tags               = module.user_label.tags
-}
-
-data "aws_iam_policy_document" "assume_role" {
-  count = var.enabled && (length(var.iam_authorizing_role_arns) > 0 || length(var.iam_role_arns) > 0) ? 1 : 0
-
-  statement {
-    actions = [
-      "sts:AssumeRole"
-    ]
-
-    principals {
-      type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
-    }
-
-    principals {
-      type        = "AWS"
-      identifiers = compact(concat(var.iam_authorizing_role_arns, var.iam_role_arns))
-    }
-
-    effect = "Allow"
-  }
-}
-
 resource "aws_elasticsearch_domain" "default" {
   count                 = var.enabled ? 1 : 0
   domain_name           = module.label.id
@@ -127,7 +96,7 @@ resource "aws_elasticsearch_domain" "default" {
     zone_awareness_enabled   = var.zone_awareness_enabled
 
     zone_awareness_config {
-      availability_zone_count = var.availability_zone_count
+      availability_zone_count = length(var.subnet_ids) > 2 ? length(var.subnet_ids) : 2
     }
   }
 
@@ -180,7 +149,7 @@ data "aws_iam_policy_document" "default" {
 
     principals {
       type        = "AWS"
-      identifiers = distinct(compact(concat(var.iam_role_arns, aws_iam_role.elasticsearch_user.*.arn)))
+      identifiers = distinct(compact(var.iam_role_arns))
     }
   }
 }
@@ -201,10 +170,12 @@ module "domain_hostname" {
 }
 
 module "kibana_hostname" {
-  source  = "git::https://github.com/cloudposse/terraform-aws-route53-cluster-hostname.git?ref=tags/0.3.0"
-  enabled = var.enabled && var.dns_zone_id != "" ? true : false
-  name    = var.kibana_subdomain_name
-  ttl     = 60
-  zone_id = var.dns_zone_id
-  records = [join("", aws_elasticsearch_domain.default.*.kibana_endpoint)]
+  source    = "git::https://github.com/cloudposse/terraform-aws-route53-cluster-hostname.git?ref=tags/0.3.0"
+  enabled   = var.enabled && var.dns_zone_id != "" ? true : false
+  namespace = var.namespace
+  stage     = var.stage
+  name      = var.kibana_subdomain_name
+  ttl       = 60
+  zone_id   = var.dns_zone_id
+  records   = [join("", aws_elasticsearch_domain.default.*.endpoint)]
 }
