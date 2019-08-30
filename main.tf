@@ -137,7 +137,7 @@ resource "aws_elasticsearch_domain" "default" {
 }
 
 data "aws_iam_policy_document" "default" {
-  count = var.enabled
+  count = var.enabled ? 1 : 0
 
   statement {
     actions = distinct(compact(var.iam_actions))
